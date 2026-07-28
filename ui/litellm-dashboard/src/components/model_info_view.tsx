@@ -26,6 +26,11 @@ import { isMaskedSecret, stripMaskedSecrets } from "../utils/maskedSecretUtils";
 import { formItemValidateJSON, truncateString } from "../utils/textUtils";
 import AutoRouterConnectionTest from "./add_model/auto_router_connection_test";
 import { AutoRouterTestTarget, buildAutoRouterTestTargets } from "./add_model/build_auto_router_test_targets";
+import { normalizeTierModels } from "./add_model/complexity_router_tiers";
+import {
+  hasAutoRouterEditor,
+  isComplexityRouter as isComplexityRouterParams,
+} from "./add_model/auto_router_strategies";
 import CacheControlSettings from "./add_model/cache_control_settings";
 import DeleteResourceModal from "./common_components/DeleteResourceModal";
 import EditAutoRouterModal from "./edit_auto_router/edit_auto_router_modal";
@@ -58,12 +63,6 @@ interface ModelInfoViewProps {
   onModelUpdate?: (updatedModel: any) => void;
   modelAccessGroups: string[] | null;
 }
-
-const normalizeTierModels = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string" && value) return [value];
-  return [];
-};
 
 interface ComplexityRouterTierConfig {
   tiers?: {
@@ -178,13 +177,9 @@ export default function ModelInfoView({
   const canEditModel =
     (userRole === "Admin" || modelData?.model_info?.created_by === userID) && modelData?.model_info?.db_model;
   const isAdmin = userRole === "Admin";
-  const isAutoRouter =
-    modelData?.litellm_params?.auto_router_config != null ||
-    modelData?.litellm_params?.complexity_router_config != null ||
-    modelData?.litellm_params?.model?.startsWith("auto_router/complexity_router");
-  const isComplexityRouter =
-    modelData?.litellm_params?.complexity_router_config != null ||
-    modelData?.litellm_params?.model?.startsWith("auto_router/complexity_router");
+  // Editor-aware on purpose: an adaptive or quality router must not offer Edit Auto Router.
+  const isAutoRouterModel = hasAutoRouterEditor(modelData?.litellm_params);
+  const isComplexityRouterModel = isComplexityRouterParams(modelData?.litellm_params);
 
   const usingExistingCredential =
     modelData?.litellm_params?.litellm_credential_name != null &&
@@ -492,7 +487,7 @@ export default function ModelInfoView({
 
   const handleTestConnection = async () => {
     if (!accessToken) return;
-    if (isComplexityRouter) {
+    if (isComplexityRouterModel) {
       const targets = buildComplexityRouterTestTargets(localModelData ?? modelData);
       if (targets.length === 0) {
         NotificationsManager.warning("No complexity tiers are configured yet, so there is nothing to test.");
@@ -604,7 +599,7 @@ export default function ModelInfoView({
           </div>
         </div>
         <div className="flex gap-2">
-          {(!isAutoRouter || isComplexityRouter) && (
+          {(!isAutoRouterModel || isComplexityRouterModel) && (
             <Button
               icon={<RefreshIcon className="h-4 w-4" />}
               onClick={handleTestConnection}
@@ -721,7 +716,7 @@ export default function ModelInfoView({
               <div className="flex justify-between items-center mb-4">
                 <Title>Model Settings</Title>
                 <div className="flex gap-2">
-                  {isAutoRouter && canEditModel && !isEditing && (
+                  {isAutoRouterModel && canEditModel && !isEditing && (
                     <TremorButton onClick={() => setIsAutoRouterModalOpen(true)} className="flex items-center">
                       Edit Auto Router
                     </TremorButton>

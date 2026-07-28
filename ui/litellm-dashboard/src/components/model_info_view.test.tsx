@@ -949,4 +949,36 @@ describe("ModelInfoView", () => {
     expect(screen.queryByAltText("zzz-internal logo")).not.toBeInTheDocument();
     expect(screen.getByText("z")).toBeInTheDocument();
   });
+
+  // EditAutoRouterModal only speaks complexity and semantic. Offering it for an adaptive or
+  // quality router lets a save write auto_router_config onto a row that stores its settings
+  // elsewhere. These rows stay reachable from Health Status and direct ?model= links even
+  // though the Models table now excludes auto-routers, so the button itself has to be gated.
+  describe("Edit Auto Router affordance", () => {
+    const withRouter = (litellmParams: Record<string, unknown>) => {
+      mockUseModelsInfo.mockReturnValue({
+        data: { data: [{ ...defaultModelData, litellm_params: { ...litellmParams } }] },
+        isLoading: false,
+        error: null,
+      });
+    };
+
+    it.each([
+      ["auto_router/adaptive_router", "adaptive"],
+      ["auto_router/quality_router", "quality"],
+    ])("is absent for a %s router", async (model) => {
+      withRouter({ model });
+      render(<ModelInfoView {...DEFAULT_ADMIN_PROPS} />, { wrapper });
+
+      expect(await screen.findByText("GPT-4")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /edit auto router/i })).not.toBeInTheDocument();
+    });
+
+    it("is present for a complexity router, which the modal does understand", async () => {
+      withRouter({ model: "auto_router/complexity_router", complexity_router_config: { tiers: {} } });
+      render(<ModelInfoView {...DEFAULT_ADMIN_PROPS} />, { wrapper });
+
+      expect(await screen.findByRole("button", { name: /edit auto router/i })).toBeInTheDocument();
+    });
+  });
 });

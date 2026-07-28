@@ -14,6 +14,7 @@ import TeamInfoView from "@/components/team/TeamInfo";
 import { useModelDetailRouting } from "@/app/(dashboard)/models-and-endpoints/detailNavigation";
 import { useModelDashboardData } from "@/app/(dashboard)/models-and-endpoints/useModelDashboardData";
 import AllModelsPanel from "@/app/(dashboard)/models-and-endpoints/panels/AllModelsPanel";
+import AutoRoutersTabPanel from "@/app/(dashboard)/models-and-endpoints/panels/AutoRoutersTabPanel";
 import AddModelPanel from "@/app/(dashboard)/models-and-endpoints/panels/AddModelPanel";
 import LlmCredentialsPanel from "@/app/(dashboard)/models-and-endpoints/panels/LlmCredentialsPanel";
 import PassThroughPanel from "@/app/(dashboard)/models-and-endpoints/panels/PassThroughPanel";
@@ -23,6 +24,7 @@ import ModelGroupAliasPanel from "@/app/(dashboard)/models-and-endpoints/panels/
 import PriceDataPanel from "@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel";
 
 type ModelTabSlug =
+  | "auto-routers"
   | "add"
   | "llm-credentials"
   | "pass-through"
@@ -34,6 +36,7 @@ type ModelTabSlug =
 const BASE_TAB_KEY = "all-models";
 
 const TAB_LABELS: Record<ModelTabSlug, string> = {
+  "auto-routers": "Auto-Routers",
   add: "Add Model",
   "llm-credentials": "LLM Credentials",
   "pass-through": "Pass-Through Endpoints",
@@ -47,6 +50,8 @@ const renderPanel = (key: string) => {
   switch (key) {
     case BASE_TAB_KEY:
       return <AllModelsPanel />;
+    case "auto-routers":
+      return <AutoRoutersTabPanel />;
     case "add":
       return <AddModelPanel />;
     case "llm-credentials":
@@ -88,6 +93,7 @@ export default function ModelsAndEndpointsPage() {
   const visibleSlugs = useMemo<Array<"" | ModelTabSlug>>(
     () => [
       "",
+      ...(isAdmin ? (["auto-routers"] as const) : []),
       ...(shouldHideAddModelTab ? [] : (["add"] as const)),
       ...(isAdmin
         ? (["llm-credentials", "pass-through", "health", "retry-settings", "model-group-alias", "price-data"] as const)
