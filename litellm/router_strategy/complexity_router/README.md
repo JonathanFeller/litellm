@@ -142,6 +142,46 @@ Technical code keywords are detected case-insensitively and include:
 - Infrastructure: `database`, `api`, `endpoint`, `docker`, `kubernetes`
 - Actions: `debug`, `implement`, `refactor`, `optimize`
 
+## Cache Warming
+
+Provider prompt caches (Anthropic, Bedrock) are per-model, so a mid-session tier switch pays a fresh cache write on the new model and loses the cache-read discount. `cache_warming` keeps every tier model's prompt cache warm for active sessions: the proxy captures each session's latest payload and a background refresher replays it (`max_tokens=1`) against the other tier models before the provider's ~5 minute cache TTL expires. When the router later switches tiers, the switched-to model already has the session's prefix cached, and the routing pick prefers models whose cache is verifiably warm.
+
+```yaml
+model_list:
+  - model_name: smart-router
+    litellm_params:
+      model: auto_router/complexity_router
+      complexity_router_config:
+        tiers:
+          SIMPLE: fast-claude
+          COMPLEX: smart-claude
+        session_affinity: false   # warming is the alternative to pinning; see below
+        cache_warming:
+          enabled: true
+          refresh_interval_seconds: 270   # keep under the provider cache TTL (Anthropic: 5 min)
+          session_ttl_seconds: 3600
+          idle_timeout_seconds: 600       # stop warming a session this long after its last real request
+          max_sessions: 1000
+          # warm_models: [fast-claude, smart-claude]  # default: first member of each tier pool
+
+general_settings:
+  store_prompts_in_spend_logs: true   # consent gate; warming stores full payloads in Redis
+
+router_settings:
+  redis_host: localhost
+  redis_port: 6379
+```
+
+Requirements and semantics:
+
+- **Redis is required.** Session payloads, per-model warmth stamps, and a per-router session index live in Redis so all pods share them and a single pod (via a Redis cron lock) runs the replays. Without Redis, warming logs a warning once and no-ops; requests are unaffected. Sessions are tracked through the index rather than keyspace scans, so Redis Cluster is supported.
+- **Prompt retention consent is a prerequisite.** Warming persists full request payloads (messages, system, tools) in Redis, so capture requires `store_prompts_in_spend_logs: true` and respects message redaction: with the flag off, or with `turn_off_message_logging` (globally or via the per-request redaction header) active, capture warns once and skips.
+- **Only Anthropic and Bedrock models that support prompt caching are warmed.** Other models in the tier pools are left alone. Requests must carry a `metadata.session_id` and exceed the warm set's minimum cacheable token count (`prompt_cache_min_tokens`, default 1024) to be captured.
+- **Spend attribution and budget reservation.** Replays run under the originating key: they appear in spend logs attributed to that key/team/user, tagged `litellm_cache_warming` so they are filterable in the Logs UI. A `max_tokens=1` replay of a warm prefix bills roughly 10% of the input cost. Warming stops for keys that are deleted, blocked, or expired, and a replay is sent only when the key's recorded spend plus the cost of replays already sent this warming cycle (a leader-local reservation ledger, so bursts inside one spend-write lag window cannot overshoot) plus the replay's estimated cost stays within `max_budget`. Key state is verified fresh each tick; when the database is unreachable the tick is skipped and warming pauses until it is reachable again (caches re-warm on the next successful tick). Replays are also paced so warming's own consumption stays inside the key's `rpm_limit` and `tpm_limit` over a rolling minute; real-traffic consumption is tracked by the proxy's own limiters, and sharing those counters with warming is a planned follow-up.
+- **Multi-deployment groups require deployment affinity.** A replay routes by group name, so with several deployments it warms one member's cache while real traffic spreads across all of them: paying the cache-write premium against 1/N routing odds is worse than not warming, so such a group is skipped (with a one-time warning naming the group and both remedies) unless `DeploymentAffinityCheck` is active for it with the session_id mode, enabled globally via `router_settings.optional_pre_call_checks: ["session_affinity"]` or per group via `router_settings.model_group_affinity_config`. When active, replays carry the session's `session_id` (and the originating key hash), so the affinity check pins warming and real traffic to the same deployment. Single-deployment groups warm regardless. More than one deployment is used as the conservative stand-in for "more than one provider cache domain"
+- **`max_sessions`** caps concurrently warmed sessions per auto-router, enforced atomically at capture; once reached, new sessions are not admitted until existing ones expire.
+- **Interplay with `session_affinity`** (default on): affinity pins a session to its first-turn model, so no tier switch happens and warming buys nothing; with affinity on, captured sessions are still warmed but the pin decides routing. Disable `session_affinity` to let per-turn classification switch tiers and have warming make those switches cache hits.
+
 ## Performance
 
 - **Classification time**: <1ms typical
