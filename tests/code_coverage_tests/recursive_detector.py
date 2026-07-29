@@ -57,6 +57,8 @@ IGNORE_FUNCTIONS = [
     "_filter_mcp_argument_value",  # max depth set (DEFAULT_MAX_RECURSE_DEPTH); fails closed by blocking the MCP call at the cap.
     "_redact_scanned_content",  # max depth set (DEFAULT_MAX_RECURSE_DEPTH); fails closed by returning "[REDACTED]" at the cap.
     "_iter_fallback_targets",  # max depth set (2 * ROUTER_MAX_FALLBACKS); fails closed by raising ValueError at the cap.
+    "_collect_argument_texts",  # max depth set (DEFAULT_MAX_RECURSE_DEPTH); fails closed by blocking the MCP call at the cap.
+    "_replace_argument_texts",  # transitively bounded: only runs on a tree _collect_argument_texts already walked under the cap.
 ]
 
 
